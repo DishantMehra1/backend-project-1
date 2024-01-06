@@ -1,5 +1,5 @@
 import mongoose, { Schema } from "mongoose";
-import { Jwt } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 
 const userSchema = new Schema(
@@ -37,7 +37,7 @@ const userSchema = new Schema(
                 ref: "Video"
             }
         ],
-        passwords: {
+        password: {
             type: String,
             required: [true, 'Password is required']
         },
@@ -74,7 +74,7 @@ userSchema.methods.generateAccessTOken = function () {
         }
     )
 }
-userSchema.methods.generateRefreshTOken = function () { 
+userSchema.methods.generateRefreshTOken = function () {
     jwt.sign(
         {
             _id: this._id,
