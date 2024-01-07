@@ -6,9 +6,28 @@ import { Select } from "@material-ui/core";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
 
+const generateAccessAndRefreshToken = async (userId) => {
+    try {
+        const user = User.findOne(userId);
+        const accessToken = user.generateAccessToken();
+        const refreshToken = user.generateRefreshT0ken();
+
+        user.refreshToken = refreshToken;
+        /*  when we call the save method all the validations of user model will
+            be invoked(i.e. password required etc.) but we don't want that since we have only added one extra property to use object
+        */
+        user.save({ validateBeforeSave: false })
+
+        return { accessToken, refreshToken };
+    } catch (error) {
+        throw new ApiError(500, "Something wnet wrong while generating access and refresh tokens");
+    }
+}
+
+// register the user
 const registerUser = asyncHandler(async (req, res) => {
     // 1. Get data from front End
-    const { userName, email, fullName, password} = req.body;
+    const { userName, email, fullName, password } = req.body;
     console.log("email: " + email);
 
     //2. Perform all the validations
@@ -31,7 +50,7 @@ const registerUser = asyncHandler(async (req, res) => {
     const avatarLocalPath = req.files?.avatar[0]?.path;
     // const coverImageLocalPath = req.files?.coverImage[0]?.path;
     let coverImageLocalPath;
-    if(req.files && Array.isArray(req.files.coverImage) && req.files.coverImage.length > 0){
+    if (req.files && Array.isArray(req.files.coverImage) && req.files.coverImage.length > 0) {
         coverImageLocalPath = req.files.coverImage[0].path;
     }
 
@@ -74,4 +93,79 @@ const registerUser = asyncHandler(async (req, res) => {
     )
 })
 
-export { registerUser };
+// login the user
+const loginUser = asyncHandler(async (req, res) => {
+    //1. get data from req body
+    const { email, userName, password } = req.body;
+
+    if (!email || !userName) {
+        throw new ApiError(400, "User name or password is required");
+    }
+
+    // 2. Find the user
+    const userExists = await User.findOne({
+        $or: [{ userName }, { email }]  //find with username or email
+    })
+
+    if (!userExists) {
+        throw new ApiError(400, "User does not exist. Please register yourself");
+    }
+
+    const isPasswordCorrect = await userExists.isPasswordCorrect(password);
+
+    if (!isPasswordCorrect) {
+        throw new ApiError(401, "Invalid user credentials");
+    }
+
+    //3. Generate access and refresh token
+    const { accessToken, refreshToken } = await generateAccessAndRefreshToken(user._id);
+
+    //4. send it to cookies
+    const loggedInUser = await User.findById(user._id).select("-password -refreshToken");
+
+    /*
+        by default cookies are modifieable but by doing following they can modified
+        by server only 
+    */
+    const options = {
+        httpOnly: true,
+        secure: true
+    }
+
+    return res.status(200)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
+        .json(
+            new ApiResponse(
+                200,
+                {
+                    user: loggedInUser, accessToken, refreshToken
+                },
+                "User logged in successfully"
+            )
+        )
+})
+
+
+const logOutUser = asyncHandler(async (req, res) => {
+    await User.findByIdAndUpdate(
+        req.user._id,
+        {
+            $set: {
+                refreshToken: undefined
+            }
+        }
+    )
+
+    const options = {
+        httpOnly: true,
+        secure: true
+    }
+
+    return res.status(200)
+        .clearCookies("accessToken", options)
+        .clearCookies("refreshToken", options)
+        .json(new ApiResponse(200, {}, "User logged out"));
+})
+
+export { registerUser, loginUser, logOutUser };
